@@ -1,0 +1,357 @@
+name: CI/CD — AI Fund Operations Agent
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  PYTHON_VERSION: "3.11"
+  ACR_NAME: aifundagentreg
+  ACR_LOGIN_SERVER: aifundagentreg.azurecr.io
+  IMAGE_NAME: ai-fund-agent
+  RESOURCE_GROUP: rg-ai-fund-demo
+  CONTAINER_APP_NAME: ai-fund-demo
+  CONTAINER_ENV_NAME: ai-fund-env
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # ═══════════════════════════════════════════════════════════
+  # Stage 1: Lint + Unit Tests
+  # ═══════════════════════════════════════════════════════════
+  test:
+    name: "Stage 1 — Lint & Unit Tests"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Lint with ruff
+        run: |
+          ruff check src/ tests/ --output-format=github
+          ruff format --check src/ tests/
+
+      - name: Run unit tests
+        run: |
+          python -m pytest tests/ -v -k "not Integration" \
+            --tb=short \
+            --junitxml=test-results/unit-tests.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results
+          path: test-results/
+          retention-days: 30
+
+  # ═══════════════════════════════════════════════════════════
+  # Stage 2: Build + Push Docker Image to ACR
+  # ═══════════════════════════════════════════════════════════
+  build-and-push:
+    name: "Stage 2 — Build & Push to ACR"
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build-push.outputs.digest }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Login to ACR
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Generate image metadata
+        id: meta
+        run: |
+          SHA_TAG="${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          LATEST_TAG="${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:latest"
+          echo "sha_tag=${SHA_TAG}" >> $GITHUB_OUTPUT
+          echo "latest_tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
+          echo "tags=${SHA_TAG}" >> $GITHUB_OUTPUT
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -t ${{ steps.meta.outputs.sha_tag }} \
+            -t ${{ steps.meta.outputs.latest_tag }} \
+            .
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.meta.outputs.sha_tag }}
+          format: "table"
+          exit-code: "1"
+          severity: "CRITICAL,HIGH"
+          ignore-unfixed: true
+
+      - name: Push to ACR
+        id: build-push
+        run: |
+          docker push ${{ steps.meta.outputs.sha_tag }}
+          docker push ${{ steps.meta.outputs.latest_tag }}
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' ${{ steps.meta.outputs.sha_tag }} | cut -d'@' -f2)
+          echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
+          echo "✅ Pushed: ${{ steps.meta.outputs.sha_tag }}"
+
+  # ═══════════════════════════════════════════════════════════
+  # Stage 3: Deploy to Staging
+  # ═══════════════════════════════════════════════════════════
+  deploy-staging:
+    name: "Stage 3 — Deploy to Staging"
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment: staging
+
+    outputs:
+      staging-url: ${{ steps.deploy.outputs.staging_url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy staging revision
+        id: deploy
+        run: |
+          # Deploy new revision with a staging label
+          REVISION_SUFFIX="stg-$(echo ${{ github.sha }} | cut -c1-7)"
+
+          az containerapp update \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --image ${{ needs.build-and-push.outputs.image-tag }} \
+            --revision-suffix "${REVISION_SUFFIX}" \
+            --set-env-vars \
+              PROJECT_ENDPOINT="${{ secrets.PROJECT_ENDPOINT }}" \
+              MODEL_DEPLOYMENT="${{ secrets.MODEL_DEPLOYMENT }}" \
+              AZURE_CLIENT_ID="${{ secrets.SP_CLIENT_ID }}" \
+              AZURE_CLIENT_SECRET="${{ secrets.SP_CLIENT_SECRET }}" \
+              AZURE_TENANT_ID="${{ secrets.SP_TENANT_ID }}"
+
+          # Get the app FQDN
+          FQDN=$(az containerapp show \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+
+          STAGING_URL="https://${FQDN}"
+          echo "staging_url=${STAGING_URL}" >> $GITHUB_OUTPUT
+          echo "Staging deployed: ${STAGING_URL}"
+
+      - name: Wait for healthy startup
+        run: |
+          echo "Waiting for staging to become healthy..."
+          STAGING_URL="${{ steps.deploy.outputs.staging_url }}"
+          for i in {1..30}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${STAGING_URL}" || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Staging is healthy (HTTP 200) after ${i}0s"
+              exit 0
+            fi
+            echo "  Attempt ${i}/30: HTTP ${STATUS}, waiting..."
+            sleep 10
+          done
+          echo "❌ Staging failed to become healthy within 300s"
+          exit 1
+
+      - name: Smoke test
+        run: |
+          chmod +x scripts/smoke_test.sh
+          ./scripts/smoke_test.sh "${{ steps.deploy.outputs.staging_url }}"
+
+  # ═══════════════════════════════════════════════════════════
+  # Stage 4: AI Validation Gate
+  # ═══════════════════════════════════════════════════════════
+  ai-validation:
+    name: "Stage 4 — AI Validation Gate"
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    environment: staging
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: "AI Gate: Integration tests"
+        env:
+          PROJECT_ENDPOINT: ${{ secrets.PROJECT_ENDPOINT }}
+          MODEL_DEPLOYMENT: ${{ secrets.MODEL_DEPLOYMENT }}
+        run: |
+          echo "Running AI validation against live agent..."
+          python -m pytest tests/ -v -k "Integration" \
+            --tb=short \
+            --junitxml=test-results/integration-tests.xml
+
+      - name: "AI Gate: Response quality check"
+        env:
+          PROJECT_ENDPOINT: ${{ secrets.PROJECT_ENDPOINT }}
+          MODEL_DEPLOYMENT: ${{ secrets.MODEL_DEPLOYMENT }}
+        run: |
+          python -c "
+          from src.agent import create_agent
+          import sys, time
+
+          agent = create_agent()
+          agent.setup(knowledge_dir='data/knowledge_base')
+
+          checks_passed = 0
+          checks_total = 0
+
+          # ── Check 1: RAG response relevance ──
+          checks_total += 1
+          print('Check 1: RAG response relevance...')
+          start = time.time()
+          resp = agent.ask('What are the main types of renewable energy?')
+          latency = time.time() - start
+          if len(resp) > 50 and any(kw in resp.lower() for kw in ['wind', 'solar', 'renewable']):
+              checks_passed += 1
+              print(f'   ✅ Relevant response ({len(resp)} chars, {latency:.1f}s)')
+          else:
+              print(f'   ❌ Response may not be relevant ({len(resp)} chars)')
+
+          # ── Check 2: Extraction accuracy ──
+          checks_total += 1
+          print('Check 2: Extraction accuracy...')
+          memo = '''Project: Test Wind Farm, Capacity: 500 MW, Location: Denmark, Technology: Offshore Wind'''
+          result = agent.extract(memo)
+          if isinstance(result, dict) and 'parse_error' not in result:
+              checks_passed += 1
+              print(f'   ✅ Valid JSON extracted ({len(result)} fields)')
+          else:
+              print(f'   ❌ Extraction failed')
+
+          # ── Check 3: Response latency ──
+          checks_total += 1
+          print('Check 3: Response latency...')
+          start = time.time()
+          _ = agent.ask('Hello')
+          latency = time.time() - start
+          if latency < 30:
+              checks_passed += 1
+              print(f'   ✅ Latency acceptable ({latency:.1f}s < 30s)')
+          else:
+              print(f'   ❌ Latency too high ({latency:.1f}s >= 30s)')
+
+          # ── Summary ──
+          agent.cleanup()
+          print(f'\n{'='*50}')
+          print(f'AI Validation: {checks_passed}/{checks_total} checks passed')
+          print(f'{'='*50}')
+
+          if checks_passed < checks_total:
+              print('Some checks failed — review before promoting to production')
+              sys.exit(1)
+          "
+
+      - name: Upload AI validation results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-validation-results
+          path: test-results/
+          retention-days: 30
+
+  # ═══════════════════════════════════════════════════════════
+  # Stage 5: Promote to Production
+  # ═══════════════════════════════════════════════════════════
+  promote-production:
+    name: "🚀 Stage 5 — Promote to Production"
+    runs-on: ubuntu-latest
+    needs: [build-and-push, deploy-staging, ai-validation]
+    environment: production
+
+    steps:
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Promote staging to production
+        run: |
+          echo "Promoting validated staging revision to production..."
+
+          # Get the latest revision name
+          LATEST_REVISION=$(az containerapp revision list \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "[-1].name" -o tsv)
+
+          # Route 100% traffic to the latest revision
+          az containerapp ingress traffic set \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --revision-weight "${LATEST_REVISION}=100"
+
+          echo "Production traffic routed to: ${LATEST_REVISION}"
+
+      - name: Final health check
+        run: |
+          FQDN=$(az containerapp show \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://${FQDN}")
+          if [ "$STATUS" = "200" ]; then
+            echo "✅ Production is live: https://${FQDN}"
+          else
+            echo "❌ Production health check failed: HTTP ${STATUS}"
+            exit 1
+          fi
+
+      - name: Deployment summary
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Image** | \`${{ needs.build-and-push.outputs.image-tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Commit** | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **URL** | ${{ needs.deploy-staging.outputs.staging-url }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **AI Validation** | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Deployed at** | $(date -u +%Y-%m-%dT%H:%M:%SZ) |" >> $GITHUB_STEP_SUMMARY
