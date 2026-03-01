@@ -22,16 +22,16 @@ An AI-powered assistant. Support both Google Gemini and Azure AI Foundry.
 │    └── JSON extraction display                      │
 ├─────────────────────────────────────────────────────┤
 │  create_agent() — Backend Factory                   │
-│    ├── GeminiAgent   (default)                │
-│    │     ├── Gemini 2.5 Flash                 │
-│    │     ├── Gemini Embedding (vectorization)        │
-│    │     └── numpy _VectorStore (cosine similarity)  │
+│    ├── GeminiAgent   (default)                      │
+│    │     ├── Gemini 2.5 Flash                       │
+│    │     ├── Gemini Embedding (vectorization)       │
+│    │     └── numpy _VectorStore (cosine similarity) │
 │    │                                                │
 │    └── AzureAgent    (requires subscription)        │
-│          ├── GPT-4o via Azure Agent Service          │
-│          └── Azure File Search (managed RAG)         │
+│          ├── GPT-4o via Azure Agent Service         │
+│          └── Azure File Search (managed RAG)        │
 ├─────────────────────────────────────────────────────┤
-│  data/knowledge_base/   ← PDF, MD, TXT documents   │
+│  data/knowledge_base/   ← PDF, MD, TXT documents    │
 └─────────────────────────────────────────────────────┘
 ```
 
