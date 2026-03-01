@@ -151,6 +151,12 @@ with st.sidebar:
         config_ready = bool(az_endpoint and az_model)
         if not config_ready:
             st.warning("Fill in your Azure project details to start")
+        else:
+            st.info(
+                "Azure mode will auto-upload files from `data/knowledge_base/` "
+                "to Azure File Search on first connection. "
+                "An active Azure subscription is required."
+            )
 
         # Apply to Config and env vars (for DefaultAzureCredential)
         Config.BACKEND = "azure"
