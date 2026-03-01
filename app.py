@@ -165,20 +165,36 @@ with st.sidebar:
 
     st.divider()
 
-    # ── About ──
-    st.header("About")
-    st.markdown("""
-    **Capabilities:**
-    - Q&A over renewable energy reports
-    - Extract structured data from investment memos
+    # ── Knowledge Base & Sample Data ──
+    st.header("Knowledge Base")
 
-    **Try asking:**
-    - *"What is the LCOE for offshore wind?"*
-    - *"Extract key terms from this memo: ..."*
-    """)
+    # Show loaded knowledge base files
+    from pathlib import Path
+
+    kb_dir = Path("data/knowledge_base")
+    sample_dir = Path("data/sample_docs")
+
+    if kb_dir.exists():
+        kb_files = sorted(kb_dir.glob("*"))
+        kb_files = [f for f in kb_files if f.suffix.lower() in (".md", ".txt", ".pdf")]
+        if kb_files:
+            st.caption(f"RAG indexed ({len(kb_files)} files):")
+            for f in kb_files:
+                st.markdown(f"- `{f.name}`")
+        else:
+            st.caption("No documents in `data/knowledge_base/`")
+
+    if sample_dir.exists():
+        sample_files = sorted(sample_dir.glob("*"))
+        if sample_files:
+            st.caption("Sample documents:")
+            for f in sample_files:
+                st.markdown(f"- `{f.name}`")
+
+    st.divider()
 
     # Quick-fill extraction button
-    if st.button("Load sample memo"):
+    if st.button("Load sample memo for extraction"):
         try:
             with open("data/sample_docs/investment_memo_sample.md") as f:
                 sample = f.read()
@@ -187,6 +203,17 @@ with st.sidebar:
             )
         except FileNotFoundError:
             st.warning("Sample file not found")
+
+    st.divider()
+
+    # ── About ──
+    st.header("About")
+    st.markdown("""
+    **Try asking:**
+    - *"What is the LCOE for offshore wind?"*
+    - *"What are the key risks for offshore wind?"*
+    - *"Extract key terms from this memo: ..."*
+    """)
 
 
 # ══════════════════════════════════════════════════════
@@ -244,7 +271,7 @@ for msg in st.session_state.messages:
 
 # Chat Input
 prefill = st.session_state.pop("prefill", None)
-prompt = st.chat_input("Ask about renewable energy or paste a document...") or prefill
+prompt = st.chat_input("Ask about renewable energy or paste a document (text)...") or prefill
 
 if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
