@@ -1,16 +1,16 @@
 # AI Fund Operations Agent
 
-An AI-powered assistant for renewable energy fund operations. Pluggable backend architecture supports both Google Gemini (free) and Azure AI Foundry.
+An AI-powered assistant. Support both Google Gemini and Azure AI Foundry.
 
 ## Features
 
 | Feature | Description |
 |---------|-------------|
-| **Knowledge Q&A (RAG)** | Vector search over renewable energy reports, returns sourced answers |
+| **Knowledge Q&A (RAG)** | Vector search over sample energy reports, returns sourced answers |
 | **Document Extraction** | Parses investment memos into structured JSON |
 | **Pluggable Backend** | Switch between Gemini and Azure with one env var |
 | **Containerized** | Dockerfile for consistent deployment across environments |
-| **CI/CD Pipeline** | 5-stage GitHub Actions pipeline with AI Validation Gate |
+| **CI/CD Pipeline** | GitHub Actions with AI Validation |
 
 ## Architecture
 
@@ -22,8 +22,8 @@ An AI-powered assistant for renewable energy fund operations. Pluggable backend 
 │    └── JSON extraction display                      │
 ├─────────────────────────────────────────────────────┤
 │  create_agent() — Backend Factory                   │
-│    ├── GeminiAgent   (free, default)                │
-│    │     ├── Gemini 2.5 Flash (LLM)                 │
+│    ├── GeminiAgent   (default)                │
+│    │     ├── Gemini 2.5 Flash                 │
 │    │     ├── Gemini Embedding (vectorization)        │
 │    │     └── numpy _VectorStore (cosine similarity)  │
 │    │                                                │
@@ -86,7 +86,7 @@ docker run -p 8501:8501 \
 ├── scripts/
 │   └── smoke_test.sh         # Health check script
 ├── .github/workflows/
-│   └── ci-cd.yml             # 5-stage CI/CD pipeline
+│   └── ci-cd.yml             # CI/CD pipeline
 ├── Dockerfile
 ├── deploy.py                 # Automated deployment
 └── requirements.txt
@@ -129,11 +129,9 @@ python -m pytest tests/ -v
 
 | Component | Technology |
 |-----------|-----------|
-| LLM | Gemini 2.5 Flash / Azure GPT-4o |
+| LLM | Gemini / Azure models |
 | RAG | numpy cosine similarity / Azure File Search |
-| Embeddings | Gemini Embedding API |
 | Web UI | Streamlit |
 | Container | Docker |
 | CI/CD | GitHub Actions |
 | Testing | pytest + ruff |
-| Language | Python 3.11+ |
