@@ -11,9 +11,11 @@ from pathlib import Path
 from azure.ai.projects import AIProjectClient
 from azure.ai.agents.models import (
     FileSearchTool,
+    FileSearchToolResource,
     FilePurpose,
-    MessageRole,
     ListSortOrder,
+    MessageRole,
+    ToolResources,
 )
 from azure.identity import DefaultAzureCredential
 from src.agent_base import BaseAgent
@@ -51,12 +53,14 @@ class AzureAgent(BaseAgent):
 
         # 4. Create agent with file search tool
         tools = []
-        tool_resources = {}
+        tool_resources = None
         if self.vector_store:
-            tools.append(FileSearchTool())
-            tool_resources = {
-                "file_search": {"vector_store_ids": [self.vector_store.id]}
-            }
+            tools.append(FileSearchTool(vector_store_ids=[self.vector_store.id]))
+            tool_resources = ToolResources(
+                file_search=FileSearchToolResource(
+                    vector_store_ids=[self.vector_store.id]
+                )
+            )
 
         self.agent = self.client.agents.create_agent(
             model=Config.MODEL_DEPLOYMENT,
