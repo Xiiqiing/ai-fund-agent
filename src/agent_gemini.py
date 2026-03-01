@@ -9,6 +9,7 @@ Free tier limits:
 
 Dependencies: google-genai, numpy, pypdf (for PDFs)
 """
+
 import time
 from pathlib import Path
 
@@ -28,7 +29,9 @@ class _VectorStore:
         self.metadatas: list[dict] = []
         self.embeddings: np.ndarray | None = None
 
-    def add(self, documents: list[str], metadatas: list[dict], embeddings: list[list[float]]):
+    def add(
+        self, documents: list[str], metadatas: list[dict], embeddings: list[list[float]]
+    ):
         """Add documents with pre-computed embeddings."""
         self.documents.extend(documents)
         self.metadatas.extend(metadatas)
@@ -38,7 +41,9 @@ class _VectorStore:
         else:
             self.embeddings = np.vstack([self.embeddings, new_emb])
 
-    def query(self, query_embedding: list[float], n_results: int = 5) -> list[tuple[str, dict, float]]:
+    def query(
+        self, query_embedding: list[float], n_results: int = 5
+    ) -> list[tuple[str, dict, float]]:
         """Return top-n most similar documents by cosine similarity."""
         if self.embeddings is None or len(self.documents) == 0:
             return []
@@ -155,9 +160,7 @@ class GeminiAgent(BaseAgent):
                 from pypdf import PdfReader
 
                 reader = PdfReader(str(file_path))
-                return "\n".join(
-                    page.extract_text() or "" for page in reader.pages
-                )
+                return "\n".join(page.extract_text() or "" for page in reader.pages)
             except ImportError:
                 print(
                     f"  ⚠️  Install 'pypdf' to load PDFs: "
@@ -223,7 +226,9 @@ class GeminiAgent(BaseAgent):
                 model="gemini-2.5-flash",
                 contents=prompt,
                 config=types.GenerateContentConfig(
-                    system_instruction=self._system_prompt if self._system_prompt else None,
+                    system_instruction=self._system_prompt
+                    if self._system_prompt
+                    else None,
                 ),
             )
             return response.text

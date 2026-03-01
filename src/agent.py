@@ -7,6 +7,7 @@ Supports multiple backends:
 
 Set BACKEND env var to switch. Default: "gemini"
 """
+
 from src.config import Config
 
 
@@ -29,6 +30,4 @@ def create_agent():
         return GeminiAgent()
 
     else:
-        raise ValueError(
-            f"Unknown backend: '{backend}'. Use 'azure' or 'gemini'."
-        )
+        raise ValueError(f"Unknown backend: '{backend}'. Use 'azure' or 'gemini'.")

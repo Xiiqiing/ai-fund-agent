@@ -2,6 +2,7 @@
 Base agent interface for the AI Fund Operations Assistant.
 All backends (Azure, Gemini, etc.) implement this interface.
 """
+
 import json
 from abc import ABC, abstractmethod
 

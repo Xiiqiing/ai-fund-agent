@@ -6,6 +6,7 @@ Requires:
   - Azure subscription with AI Foundry project
   - Environment variables: PROJECT_ENDPOINT, MODEL_DEPLOYMENT
 """
+
 from pathlib import Path
 from azure.ai.projects import AIProjectClient
 from azure.ai.agents.models import (

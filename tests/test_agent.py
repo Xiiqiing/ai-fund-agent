@@ -5,10 +5,11 @@ Tests are designed to verify:
 2. Configuration validation works for all backends
 3. Integration tests run against configured backend
 """
+
 import json
 import os
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from src.agent_base import BaseAgent
 
@@ -39,20 +40,22 @@ class TestExtractJsonParsing:
         """Valid JSON is parsed correctly."""
         agent = _MockAgent()
 
-        mock_response = json.dumps({
-            "fund_name": "Energy Transition Fund I",
-            "project_name": "Nordic Wind Farm Alpha",
-            "location": "Denmark, North Sea",
-            "technology": "Offshore Wind",
-            "capacity": "800 MW",
-            "total_investment": "EUR 2.4 billion",
-            "target_irr": "8-10%",
-            "investment_period": "25 years",
-            "cod_date": "Q4 2027",
-            "ppa_status": "60% contracted",
-            "esg_rating": "A+ (GRESB)",
-            "key_risks": ["Permitting delays", "Supply chain", "Grid connection"],
-        })
+        mock_response = json.dumps(
+            {
+                "fund_name": "Energy Transition Fund I",
+                "project_name": "Nordic Wind Farm Alpha",
+                "location": "Denmark, North Sea",
+                "technology": "Offshore Wind",
+                "capacity": "800 MW",
+                "total_investment": "EUR 2.4 billion",
+                "target_irr": "8-10%",
+                "investment_period": "25 years",
+                "cod_date": "Q4 2027",
+                "ppa_status": "60% contracted",
+                "esg_rating": "A+ (GRESB)",
+                "key_risks": ["Permitting delays", "Supply chain", "Grid connection"],
+            }
+        )
 
         with patch.object(agent, "ask", return_value=mock_response):
             result = agent.extract("test document text")
@@ -67,9 +70,7 @@ class TestExtractJsonParsing:
         """JSON wrapped in markdown code blocks is handled."""
         agent = _MockAgent()
 
-        mock_response = (
-            '```json\n{"fund_name": "Test Fund", "capacity": "500 MW"}\n```'
-        )
+        mock_response = '```json\n{"fund_name": "Test Fund", "capacity": "500 MW"}\n```'
 
         with patch.object(agent, "ask", return_value=mock_response):
             result = agent.extract("test")
@@ -128,6 +129,7 @@ class TestAgentFactory:
         Config.BACKEND = "unknown"
         try:
             from src.agent import create_agent
+
             with pytest.raises(ValueError, match="Unknown backend"):
                 create_agent()
         finally:
@@ -165,8 +167,6 @@ class TestAgentIntegration:
         assert "fund_name" in result or "raw_response" in result
 
     def test_unknown_question_handled(self, agent):
-        response = agent.ask(
-            "What is the exact revenue of project XYZ-999 in Q3 2024?"
-        )
+        response = agent.ask("What is the exact revenue of project XYZ-999 in Q3 2024?")
         assert isinstance(response, str)
         assert len(response) > 0
