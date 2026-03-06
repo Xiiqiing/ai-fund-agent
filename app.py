@@ -18,7 +18,7 @@ st.set_page_config(
 # ── Custom Styling ──
 st.markdown("""
 <style>
-    .stApp { background-color: #0e1117; }
+    /* Use Streamlit's native theme for the main app background */
     .main-header {
         background: linear-gradient(135deg, #006B3F 0%, #00A86B 50%, #2196F3 100%);
         -webkit-background-clip: text;
@@ -36,8 +36,8 @@ st.markdown("""
     }
     .feature-badge {
         display: inline-block;
-        background: #1a1a2e;
-        border: 1px solid #333;
+        background: rgba(128, 128, 128, 0.1);
+        border: 1px solid rgba(128, 128, 128, 0.2);
         border-radius: 8px;
         padding: 0.3rem 0.8rem;
         margin: 0.2rem;
@@ -171,31 +171,36 @@ with st.sidebar:
 
     st.divider()
 
-    # ── Knowledge Base & Sample Data ──
-    st.header("Knowledge Base")
-
-    # Show loaded knowledge base files
+    # Show loaded knowledge base files (cached for performance)
     from pathlib import Path
 
-    kb_dir = Path("data/knowledge_base")
-    sample_dir = Path("data/sample_docs")
+    @st.cache_data(ttl=60)
+    def get_kb_files(kb_path, sample_path):
+        kb_files = []
+        if Path(kb_path).exists():
+            kb_files = sorted(Path(kb_path).glob("*"))
+            kb_files = [f.name for f in kb_files if f.suffix.lower() in (".md", ".txt", ".pdf")]
+        
+        sample_files = []
+        if Path(sample_path).exists():
+            sample_files = sorted(Path(sample_path).glob("*"))
+            sample_files = [f.name for f in sample_files]
+            
+        return kb_files, sample_files
 
-    if kb_dir.exists():
-        kb_files = sorted(kb_dir.glob("*"))
-        kb_files = [f for f in kb_files if f.suffix.lower() in (".md", ".txt", ".pdf")]
-        if kb_files:
-            st.caption(f"RAG indexed ({len(kb_files)} files):")
-            for f in kb_files:
-                st.markdown(f"- `{f.name}`")
-        else:
-            st.caption("No documents in `data/knowledge_base/`")
+    kb_files_list, sample_files_list = get_kb_files("data/knowledge_base", "data/sample_docs")
 
-    if sample_dir.exists():
-        sample_files = sorted(sample_dir.glob("*"))
-        if sample_files:
-            st.caption("Sample documents:")
-            for f in sample_files:
-                st.markdown(f"- `{f.name}`")
+    if kb_files_list:
+        st.caption(f"RAG indexed ({len(kb_files_list)} files):")
+        for name in kb_files_list:
+            st.markdown(f"- `{name}`")
+    else:
+        st.caption("No documents in `data/knowledge_base/`")
+
+    if sample_files_list:
+        st.caption("Sample documents:")
+        for name in sample_files_list:
+            st.markdown(f"- `{name}`")
 
     st.divider()
 
